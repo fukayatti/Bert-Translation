@@ -1,0 +1,56 @@
+# BERT英日翻訳モデル設定ファイル
+
+# データセット設定
+dataset:
+  jpara_samples: 50000
+  jesc_samples: 50000
+  test_size: 0.1
+  seed: 42
+
+# トークナイザー設定
+tokenizer:
+  model_name: "bert-base-multilingual-cased"
+  max_length: 128
+
+# Teacher モデル設定
+teacher:
+  model_name: "bert-base-multilingual-cased"
+  output_dir: "teacher_out"
+  num_train_epochs: 1
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  fp16: true
+  logging_steps: 100
+  save_total_limit: 1
+
+# Student モデル設定
+student:
+  num_hidden_layers: 4
+  learning_rate: 5e-5
+
+# TAID蒸留設定
+distillation:
+  alpha_start: 0.2
+  alpha_end: 1.0
+  momentum: 0.0
+  beta: 0.9
+  steps: 1000
+  batch_size: 8
+
+# EfQAT量子化設定
+quantization:
+  freeze_ratio: 0.9
+  interval: 4096
+  learning_rate: 3e-5
+  steps: 500
+  batch_size: 8
+
+# 評価設定
+evaluation:
+  sample_size: 100
+  max_generation_length: 128
+
+# Hugging Face Hub設定
+hub:
+  model_name: "tinybert4L-en-ja-w4a8"
+  private: true
