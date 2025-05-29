@@ -128,13 +128,20 @@ class TeacherModel:
         """テキスト生成"""
         self.model.eval()
         with torch.no_grad():
-            outputs = self.model.generate(
-                input_ids=input_ids,
-                max_length=kwargs.get('max_length', 128),
-                num_beams=kwargs.get('num_beams', 1),
-                early_stopping=kwargs.get('early_stopping', True),
-                **kwargs
-            )
+            # kwargsから個別パラメータを取り出してデフォルト値を設定
+            generation_kwargs = {
+                'input_ids': input_ids,
+                'max_length': kwargs.get('max_length', 128),
+                'num_beams': kwargs.get('num_beams', 1),
+                'early_stopping': kwargs.get('early_stopping', True),
+            }
+            
+            # その他のkwargsを追加（重複を避ける）
+            for key, value in kwargs.items():
+                if key not in ['max_length', 'num_beams', 'early_stopping']:
+                    generation_kwargs[key] = value
+            
+            outputs = self.model.generate(**generation_kwargs)
         return outputs
     
     def get_model_info(self) -> Dict[str, Any]:

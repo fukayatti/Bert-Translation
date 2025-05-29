@@ -117,9 +117,16 @@ class TextPreprocessor:
                     len(en.strip()) > 0 and len(ja.strip()) > 0):
                     valid_indices.append(i)
             
-            # 有効なデータのみを抽出
+            # 有効なデータがない場合はNoneを返す代わりに、最小限のダミーデータを作成
             if not valid_indices:
-                return {"input_ids": [], "attention_mask": [], "labels": []}
+                # 最小限のダミーデータで警告を出す
+                logger.debug("有効なデータペアが見つかりません - ダミーデータを生成")
+                dummy_text = "dummy"
+                return {
+                    "input_ids": [[self.tokenizer.cls_token_id, self.tokenizer.sep_token_id] + [self.tokenizer.pad_token_id] * (self.max_length - 2)],
+                    "attention_mask": [[1, 1] + [0] * (self.max_length - 2)],
+                    "labels": [[-100, -100] + [-100] * (self.max_length - 2)]
+                }
             
             filtered_examples = {
                 "en": [examples["en"][i] for i in valid_indices],
@@ -136,10 +143,22 @@ class TextPreprocessor:
             batch_size=1000  # バッチサイズを指定
         )
         
-        # 空のバッチを除去
-        processed_dataset = processed_dataset.filter(
-            lambda x: len(x["input_ids"]) > 0
-        )
+        # 有効でないデータを除去（より堅牢なフィルタリング）
+        def is_valid_sample(example):
+            try:
+                return (
+                    example["input_ids"] is not None and
+                    example["attention_mask"] is not None and
+                    example["labels"] is not None and
+                    len(example["input_ids"]) > 0 and
+                    len(example["attention_mask"]) > 0 and
+                    len(example["labels"]) > 0 and
+                    len(example["input_ids"]) == len(example["attention_mask"]) == len(example["labels"])
+                )
+            except (KeyError, TypeError, AttributeError):
+                return False
+        
+        processed_dataset = processed_dataset.filter(is_valid_sample)
         
         logger.info("データセットの前処理完了")
         return processed_dataset

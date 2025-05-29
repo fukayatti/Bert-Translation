@@ -17,23 +17,42 @@ def filter_none_collate_fn(batch):
     """None値をフィルタリングするカスタムcollate関数"""
     # None値を除去
     filtered_batch = [item for item in batch if item is not None and
-                     all(v is not None for v in item.values() if isinstance(item, dict))]
+                     isinstance(item, dict) and
+                     all(v is not None for v in item.values())]
     
-    # 空のバッチの場合は小さなダミーバッチを作成（完全なスキップを避ける）
+    # 空のバッチの場合はNoneを返す
     if not filtered_batch:
         logger.debug("空のバッチが検出されました")
         return None
     
     # 各フィールドでNone値をチェック
     clean_batch = []
+    required_keys = ['input_ids', 'attention_mask', 'labels']
+    
     for item in filtered_batch:
-        if isinstance(item, dict):
-            # 全てのフィールドがNoneでないことを確認
-            required_keys = ['input_ids', 'attention_mask', 'labels']
-            if all(item.get(key) is not None for key in required_keys):
-                # さらに、各フィールドが空でないことを確認
-                if all(len(item.get(key, [])) > 0 for key in required_keys):
+        try:
+            # 全てのフィールドがNoneでなく、適切な長さを持つことを確認
+            if all(key in item and item[key] is not None for key in required_keys):
+                # 各フィールドがリストまたはテンソルで、空でないことを確認
+                valid_item = True
+                for key in required_keys:
+                    value = item[key]
+                    if isinstance(value, list):
+                        if len(value) == 0 or all(x is None for x in value):
+                            valid_item = False
+                            break
+                    elif hasattr(value, '__len__'):
+                        if len(value) == 0:
+                            valid_item = False
+                            break
+                    else:
+                        valid_item = False
+                        break
+                
+                if valid_item:
                     clean_batch.append(item)
+        except (AttributeError, TypeError, KeyError):
+            continue
     
     if not clean_batch:
         logger.debug("有効なアイテムがありません")
@@ -42,39 +61,55 @@ def filter_none_collate_fn(batch):
     # 手動でバッチを構成
     try:
         result = {}
-        for key in ['input_ids', 'attention_mask', 'labels']:
+        batch_size = len(clean_batch)
+        
+        for key in required_keys:
             # 各キーの値を収集
-            values = [item[key] for item in clean_batch if key in item and item[key] is not None]
-            if not values:
-                continue
+            values = []
+            for item in clean_batch:
+                if key in item and item[key] is not None:
+                    values.append(item[key])
+            
+            if len(values) != batch_size:
+                logger.warning(f"キー '{key}' の値の数が不一致: {len(values)} != {batch_size}")
+                return None
             
             # リストからテンソルに変換
-            if isinstance(values[0], list):
-                # すべての値が同じ長さになるようにパディング
-                if values:  # 空でないことを確認
+            try:
+                if isinstance(values[0], list):
+                    # 全て同じ長さになるようにパディング
                     max_length = max(len(v) for v in values if v)
                     if max_length > 0:
                         padded_values = []
                         for v in values:
-                            if v and len(v) < max_length:
-                                # パディング（0で埋める）
-                                v = v + [0] * (max_length - len(v))
-                            elif not v:
-                                # 完全に空の場合はmax_lengthの0で埋める
-                                v = [0] * max_length
+                            if len(v) < max_length:
+                                # ラベルの場合は-100でパディング、その他は0
+                                pad_value = -100 if key == 'labels' else 0
+                                v = v + [pad_value] * (max_length - len(v))
                             padded_values.append(v)
                         result[key] = torch.tensor(padded_values, dtype=torch.long)
-            else:
-                # 既にテンソルの場合
-                result[key] = torch.stack([torch.tensor(v, dtype=torch.long) for v in values if v is not None])
+                    else:
+                        return None
+                else:
+                    # 既にテンソルの場合
+                    result[key] = torch.stack([torch.as_tensor(v, dtype=torch.long) for v in values])
+            except (ValueError, TypeError, RuntimeError) as e:
+                logger.warning(f"テンソル変換エラー (key: {key}): {e}")
+                return None
         
-        # 結果が有効かチェック
-        if result and all(len(v) > 0 for v in result.values()):
-            return result
-        else:
+        # 結果の検証
+        if not result or not all(key in result for key in required_keys):
             return None
         
-    except (TypeError, ValueError, RuntimeError) as e:
+        # 全てのテンソルが同じバッチサイズを持つことを確認
+        batch_sizes = [result[key].size(0) for key in required_keys]
+        if not all(bs == batch_sizes[0] for bs in batch_sizes):
+            logger.warning(f"バッチサイズが不一致: {batch_sizes}")
+            return None
+        
+        return result
+        
+    except Exception as e:
         logger.warning(f"Collate関数でエラーが発生、バッチをスキップ: {e}")
         return None
 

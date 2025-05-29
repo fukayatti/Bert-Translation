@@ -67,16 +67,22 @@ class ModelEvaluator:
             
             # 予測生成
             with torch.no_grad():
-                if hasattr(model, 'generate'):
-                    # StudentModelの場合
+                if hasattr(model, 'model') and hasattr(model.model, 'generate'):
+                    # TeacherModelの場合（model.model.generateを使用）
                     generated_ids = model.generate(
-                        input_ids, 
+                        input_ids,
+                        max_length=self.max_generation_length
+                    )
+                elif hasattr(model, 'generate'):
+                    # StudentModelの場合（直接generateを使用）
+                    generated_ids = model.generate(
+                        input_ids,
                         max_length=self.max_generation_length
                     )
                 else:
-                    # TeacherModelの場合
-                    generated_ids = model.model.generate(
-                        input_ids, 
+                    # フォールバック：モデルのgenerateメソッドを直接呼び出し
+                    generated_ids = model.generate(
+                        input_ids,
                         max_length=self.max_generation_length
                     )
             
