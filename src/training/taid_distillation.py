@@ -7,10 +7,40 @@ Temporally Adaptive Interpolated Distillation の実装です。
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def filter_none_collate_fn(batch):
+    """None値をフィルタリングするカスタムcollate関数"""
+    # None値を除去
+    filtered_batch = [item for item in batch if item is not None and
+                     all(v is not None for v in item.values() if isinstance(item, dict))]
+    
+    # 空のバッチの場合はNoneを返す
+    if not filtered_batch:
+        return None
+    
+    # 各フィールドでNone値をチェック
+    clean_batch = []
+    for item in filtered_batch:
+        if isinstance(item, dict):
+            # 全てのフィールドがNoneでないことを確認
+            if all(item.get(key) is not None for key in ['input_ids', 'attention_mask', 'labels']):
+                clean_batch.append(item)
+    
+    if not clean_batch:
+        return None
+    
+    # PyTorchのデフォルトcollate関数を使用
+    from torch.utils.data._utils.collate import default_collate
+    try:
+        return default_collate(clean_batch)
+    except (TypeError, ValueError) as e:
+        logger.warning(f"Collate関数でエラーが発生、バッチをスキップ: {e}")
+        return None
 
 
 class TAIDDistillation:
@@ -62,11 +92,13 @@ class TAIDDistillation:
         # Studentモデルを学習モードに設定
         self.student_model.train()
         
-        # データローダー作成
+        # データローダー作成（カスタムcollate関数を使用）
         self.dataloader = DataLoader(
-            train_dataset, 
-            batch_size=self.batch_size, 
-            shuffle=True
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            collate_fn=filter_none_collate_fn,
+            drop_last=True  # 不完全なバッチを除去
         )
         
         # オプティマイザー作成
@@ -145,49 +177,78 @@ class TAIDDistillation:
             if step >= self.steps:
                 break
             
-            # バッチデータの準備
-            input_ids = torch.tensor(batch["input_ids"]).to(self.device)
-            attention_mask = torch.tensor(batch["attention_mask"]).to(self.device)
-            labels = torch.tensor(batch["labels"]).to(self.device)
+            # Noneバッチをスキップ
+            if batch is None:
+                logger.warning(f"ステップ {step}: Noneバッチを検出、スキップします")
+                continue
             
-            # Student forward
-            student_output = self.student_model.forward(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
-            )
-            student_logits = student_output.logits
+            try:
+                # バッチデータの準備
+                input_ids = batch["input_ids"].to(self.device)
+                attention_mask = batch["attention_mask"].to(self.device)
+                labels = batch["labels"].to(self.device)
+                
+                # バッチサイズの検証
+                if input_ids.size(0) == 0:
+                    logger.warning(f"ステップ {step}: 空のバッチを検出、スキップします")
+                    continue
+                
+            except (KeyError, RuntimeError, TypeError) as e:
+                logger.warning(f"ステップ {step}: バッチデータの準備でエラー: {e}")
+                continue
             
-            # Teacher forward (勾配計算なし)
-            with torch.no_grad():
-                teacher_output = self.teacher_model.model(
+            try:
+                # Student forward
+                student_output = self.student_model.forward(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     labels=labels
                 )
-                teacher_logits = teacher_output.logits
-            
-            # TAID損失の計算
-            loss = self.compute_taid_loss(student_logits, teacher_logits)
-            
-            # 勾配更新
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            
-            # αパラメータの更新
-            self.update_alpha(step)
-            
-            # ログ記録
-            history['losses'].append(loss.item())
-            history['alphas'].append(self.alpha)
-            history['steps'].append(step)
-            
-            # 進捗表示
-            if step % 100 == 0:
-                logger.info(f"ステップ {step}/{self.steps}: 損失={loss.item():.4f}, α={self.alpha:.4f}")
-            
-            step += 1
+                student_logits = student_output.logits
+                
+                # Teacher forward (勾配計算なし)
+                with torch.no_grad():
+                    teacher_output = self.teacher_model.model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels
+                    )
+                    teacher_logits = teacher_output.logits
+                
+                # TAID損失の計算
+                loss = self.compute_taid_loss(student_logits, teacher_logits)
+                
+                # 損失の妥当性チェック
+                if torch.isnan(loss) or torch.isinf(loss):
+                    logger.warning(f"ステップ {step}: 異常な損失値を検出: {loss.item()}")
+                    continue
+                
+                # 勾配更新
+                self.optimizer.zero_grad()
+                loss.backward()
+                
+                # 勾配クリッピング
+                torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=1.0)
+                
+                self.optimizer.step()
+                
+                # αパラメータの更新
+                self.update_alpha(step)
+                
+                # ログ記録
+                history['losses'].append(loss.item())
+                history['alphas'].append(self.alpha)
+                history['steps'].append(step)
+                
+                # 進捗表示
+                if step % 100 == 0:
+                    logger.info(f"ステップ {step}/{self.steps}: 損失={loss.item():.4f}, α={self.alpha:.4f}")
+                
+                step += 1
+                
+            except Exception as e:
+                logger.error(f"ステップ {step} で蒸留処理エラー: {e}")
+                continue
         
         logger.info("TAID蒸留完了")
         logger.info(f"最終損失: {history['losses'][-1]:.4f}")

@@ -11,6 +11,36 @@ from typing import Dict, Any, List, Optional
 import logging
 import traceback
 
+
+def filter_none_collate_fn(batch):
+    """None値をフィルタリングするカスタムcollate関数"""
+    # None値を除去
+    filtered_batch = [item for item in batch if item is not None and
+                     all(v is not None for v in item.values() if isinstance(item, dict))]
+    
+    # 空のバッチの場合はNoneを返す
+    if not filtered_batch:
+        return None
+    
+    # 各フィールドでNone値をチェック
+    clean_batch = []
+    for item in filtered_batch:
+        if isinstance(item, dict):
+            # 全てのフィールドがNoneでないことを確認
+            if all(item.get(key) is not None for key in ['input_ids', 'attention_mask', 'labels']):
+                clean_batch.append(item)
+    
+    if not clean_batch:
+        return None
+    
+    # PyTorchのデフォルトcollate関数を使用
+    from torch.utils.data._utils.collate import default_collate
+    try:
+        return default_collate(clean_batch)
+    except (TypeError, ValueError) as e:
+        logging.getLogger(__name__).warning(f"Collate関数でエラーが発生、バッチをスキップ: {e}")
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,13 +112,15 @@ class EfQATQuantization:
             # Studentモデルを学習モードに設定
             self.student_model.train()
             
-            # データローダー作成
+            # データローダー作成（カスタムcollate関数を使用）
             self.dataloader = DataLoader(
                 train_dataset,
                 batch_size=self.batch_size,
                 shuffle=True,
                 num_workers=0,  # マルチプロセシング問題を回避
-                pin_memory=False  # メモリ問題を回避
+                pin_memory=False,  # メモリ問題を回避
+                collate_fn=filter_none_collate_fn,
+                drop_last=True  # 不完全なバッチを除去
             )
             
             # オプティマイザー作成
@@ -197,11 +229,16 @@ class EfQATQuantization:
                 if step >= self.steps:
                     break
                 
+                # Noneバッチをスキップ
+                if batch is None:
+                    logger.warning(f"ステップ {step}: Noneバッチを検出、スキップします")
+                    continue
+                
                 try:
                     # バッチデータの準備
-                    input_ids = torch.tensor(batch["input_ids"], dtype=torch.long).to(self.device)
-                    attention_mask = torch.tensor(batch["attention_mask"], dtype=torch.long).to(self.device)
-                    labels = torch.tensor(batch["labels"], dtype=torch.long).to(self.device)
+                    input_ids = batch["input_ids"].to(self.device)
+                    attention_mask = batch["attention_mask"].to(self.device)
+                    labels = batch["labels"].to(self.device)
                     
                     # テンソルサイズの検証
                     if input_ids.size(0) == 0:
