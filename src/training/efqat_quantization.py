@@ -7,8 +7,9 @@ Efficient Quantization-Aware Training (CWPN) による W4A8量子化の実装で
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -25,42 +26,77 @@ class EfQATQuantization:
             student_model: Studentモデル
             device: 使用デバイス
         """
+        if config is None:
+            raise ValueError("設定辞書がNoneです")
+        if student_model is None:
+            raise ValueError("Studentモデルがありません")
+        if device is None:
+            raise ValueError("デバイスが指定されていません")
+        
         self.config = config
         self.student_model = student_model
         self.device = device
         
-        # EfQAT パラメータ
+        # EfQAT パラメータの検証と設定
         self.freeze_ratio = config.get('freeze_ratio', 0.9)
+        if not (0.0 <= self.freeze_ratio <= 1.0):
+            raise ValueError(f"freeze_ratioは0.0-1.0の範囲である必要があります: {self.freeze_ratio}")
+        
         self.interval = config.get('interval', 4096)
+        if self.interval <= 0:
+            raise ValueError(f"intervalは正の値である必要があります: {self.interval}")
+        
         self.learning_rate = config.get('learning_rate', 3e-5)
+        if self.learning_rate <= 0:
+            raise ValueError(f"learning_rateは正の値である必要があります: {self.learning_rate}")
+        
         self.steps = config.get('steps', 500)
+        if self.steps <= 0:
+            raise ValueError(f"stepsは正の値である必要があります: {self.steps}")
+        
         self.batch_size = config.get('batch_size', 8)
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_sizeは正の値である必要があります: {self.batch_size}")
         
         # 閾値
         self.threshold = None
+        
+        # データローダーとオプティマイザーの初期化
+        self.dataloader: Optional[DataLoader] = None
+        self.optimizer: Optional[torch.optim.Optimizer] = None
         
         logger.info("EfQAT量子化初期化完了")
         logger.info(f"パラメータ: freeze_ratio={self.freeze_ratio}, interval={self.interval}, ステップ数={self.steps}")
     
     def setup_training(self, train_dataset):
         """学習の準備"""
-        # Studentモデルを学習モードに設定
-        self.student_model.train_mode()
-        
-        # データローダー作成
-        self.dataloader = DataLoader(
-            train_dataset, 
-            batch_size=self.batch_size, 
-            shuffle=True
-        )
-        
-        # オプティマイザー作成
-        self.optimizer = torch.optim.Adam(
-            self.student_model.parameters(), 
-            lr=self.learning_rate
-        )
-        
-        logger.info("EfQAT量子化の準備完了")
+        try:
+            if train_dataset is None:
+                raise ValueError("学習データセットがありません")
+            
+            # Studentモデルを学習モードに設定
+            self.student_model.train_mode()
+            
+            # データローダー作成
+            self.dataloader = DataLoader(
+                train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=0,  # マルチプロセシング問題を回避
+                pin_memory=False  # メモリ問題を回避
+            )
+            
+            # オプティマイザー作成
+            self.optimizer = torch.optim.Adam(
+                self.student_model.parameters(),
+                lr=self.learning_rate
+            )
+            
+            logger.info("EfQAT量子化の準備完了")
+            
+        except Exception as e:
+            logger.error(f"学習準備でエラーが発生: {e}")
+            raise
     
     def compute_importance_scores(self) -> List[torch.Tensor]:
         """重要度スコアを計算"""
@@ -139,67 +175,122 @@ class EfQATQuantization:
         """
         logger.info("EfQAT量子化を開始...")
         
-        # 学習準備
-        self.setup_training(train_dataset)
-        
-        # 学習履歴
-        history = {
-            'losses': [],
-            'thresholds': [],
-            'steps': []
-        }
-        
-        step = 0
-        for batch in self.dataloader:
-            if step >= self.steps:
-                break
+        try:
+            # 学習準備
+            self.setup_training(train_dataset)
             
-            # バッチデータの準備
-            input_ids = torch.tensor(batch["input_ids"]).to(self.device)
-            attention_mask = torch.tensor(batch["attention_mask"]).to(self.device)
-            labels = torch.tensor(batch["labels"]).to(self.device)
+            # 学習履歴
+            history = {
+                'losses': [],
+                'thresholds': [],
+                'steps': [],
+                'status': 'running'
+            }
             
-            # Forward pass
-            output = self.student_model.forward(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
-            )
-            loss = output.loss
+            step = 0
+            for batch in self.dataloader:
+                if step >= self.steps:
+                    break
+                
+                try:
+                    # バッチデータの準備
+                    input_ids = torch.tensor(batch["input_ids"], dtype=torch.long).to(self.device)
+                    attention_mask = torch.tensor(batch["attention_mask"], dtype=torch.long).to(self.device)
+                    labels = torch.tensor(batch["labels"], dtype=torch.long).to(self.device)
+                    
+                    # テンソルサイズの検証
+                    if input_ids.size(0) == 0:
+                        logger.warning(f"ステップ {step}: 空のバッチを検出、スキップします")
+                        step += 1
+                        continue
+                    
+                    # Forward pass
+                    output = self.student_model.forward(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels
+                    )
+                    
+                    if not hasattr(output, 'loss') or output.loss is None:
+                        logger.warning(f"ステップ {step}: 損失が計算されませんでした")
+                        step += 1
+                        continue
+                    
+                    loss = output.loss
+                    
+                    # 損失の妥当性チェック
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        logger.warning(f"ステップ {step}: 異常な損失値を検出: {loss.item()}")
+                        step += 1
+                        continue
+                    
+                    # Backward pass
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    
+                    # 勾配クリッピング
+                    torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=1.0)
+                    
+                    # 閾値の更新（一定間隔で）
+                    if step % self.interval == 0:
+                        self.update_threshold()
+                    
+                    # 勾配マスクの適用
+                    self.apply_gradient_mask()
+                    
+                    # パラメータ更新
+                    self.optimizer.step()
+                    
+                    # ログ記録
+                    history['losses'].append(loss.item())
+                    history['thresholds'].append(self.threshold if self.threshold else 0.0)
+                    history['steps'].append(step)
+                    
+                    # 進捗表示
+                    if step % 100 == 0:
+                        threshold_str = f"{self.threshold:.6f}" if self.threshold else "未設定"
+                        logger.info(f"ステップ {step}/{self.steps}: 損失={loss.item():.4f}, 閾値={threshold_str}")
+                    
+                    # メモリ使用量のチェック（CUDAの場合）
+                    if self.device.type == 'cuda' and step % 1000 == 0:
+                        memory_allocated = torch.cuda.memory_allocated(self.device) / 1024**3
+                        memory_reserved = torch.cuda.memory_reserved(self.device) / 1024**3
+                        logger.debug(f"GPU メモリ使用量: {memory_allocated:.2f}GB / {memory_reserved:.2f}GB")
+                        
+                        # メモリ使用量が多すぎる場合の警告
+                        if memory_allocated > 10.0:  # 10GB以上
+                            logger.warning("GPU メモリ使用量が高くなっています")
+                            torch.cuda.empty_cache()
+                    
+                except Exception as batch_error:
+                    logger.error(f"ステップ {step} でエラーが発生: {batch_error}")
+                    logger.debug(f"バッチエラーの詳細:\n{traceback.format_exc()}")
+                    # バッチエラーの場合は続行
+                    
+                step += 1
             
-            # Backward pass
-            self.optimizer.zero_grad()
-            loss.backward()
+            # W4A8量子化の適用
+            logger.info("W4A8量子化を適用中...")
+            self.quantize_weights_w4a8()
             
-            # 閾値の更新（一定間隔で）
-            if step % self.interval == 0:
-                self.update_threshold()
+            history['status'] = 'completed'
+            logger.info("EfQAT量子化完了")
             
-            # 勾配マスクの適用
-            self.apply_gradient_mask()
+            if history['losses']:
+                logger.info(f"最終損失: {history['losses'][-1]:.4f}")
+                logger.info(f"平均損失: {sum(history['losses'])/len(history['losses']):.4f}")
             
-            # パラメータ更新
-            self.optimizer.step()
+            return history
             
-            # ログ記録
-            history['losses'].append(loss.item())
-            history['thresholds'].append(self.threshold if self.threshold else 0.0)
-            history['steps'].append(step)
+        except Exception as e:
+            logger.error(f"EfQAT量子化でエラーが発生: {e}")
+            logger.error(f"詳細なトレースバック:\n{traceback.format_exc()}")
             
-            # 進捗表示
-            if step % 100 == 0:
-                threshold_str = f"{self.threshold:.6f}" if self.threshold else "未設定"
-                logger.info(f"ステップ {step}/{self.steps}: 損失={loss.item():.4f}, 閾値={threshold_str}")
+            # GPUメモリのクリーンアップ
+            if self.device.type == 'cuda':
+                torch.cuda.empty_cache()
             
-            step += 1
-        
-        # W4A8量子化の適用
-        self.quantize_weights_w4a8()
-        
-        logger.info("EfQAT量子化完了")
-        logger.info(f"最終損失: {history['losses'][-1]:.4f}")
-        
-        return history
+            raise
     
     def get_quantization_info(self) -> Dict[str, Any]:
         """量子化情報を取得"""
