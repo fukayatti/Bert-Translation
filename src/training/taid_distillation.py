@@ -32,13 +32,19 @@ class TAIDDistillation:
         self.device = device
         
         # TAID パラメータ
-        self.alpha_start = config.get('alpha_start', 0.2)
-        self.alpha_end = config.get('alpha_end', 1.0)
-        self.momentum = config.get('momentum', 0.0)
-        self.beta = config.get('beta', 0.9)
-        self.steps = config.get('steps', 1000)
-        self.batch_size = config.get('batch_size', 8)
-        self.learning_rate = config.get('learning_rate', 5e-5)
+        self.alpha_start = float(config.get('alpha_start', 0.2))
+        self.alpha_end = float(config.get('alpha_end', 1.0))
+        self.momentum = float(config.get('momentum', 0.0))
+        self.beta = float(config.get('beta', 0.9))
+        self.steps = int(config.get('steps', 1000))
+        self.batch_size = int(config.get('batch_size', 8))
+        
+        # 学習率の型変換（文字列の場合もfloatに変換）
+        learning_rate = config.get('learning_rate', 5e-5)
+        if isinstance(learning_rate, str):
+            self.learning_rate = float(learning_rate)
+        else:
+            self.learning_rate = float(learning_rate)
         
         # 初期化
         self.alpha = self.alpha_start

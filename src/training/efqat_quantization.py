@@ -38,23 +38,28 @@ class EfQATQuantization:
         self.device = device
         
         # EfQAT パラメータの検証と設定
-        self.freeze_ratio = config.get('freeze_ratio', 0.9)
+        self.freeze_ratio = float(config.get('freeze_ratio', 0.9))
         if not (0.0 <= self.freeze_ratio <= 1.0):
             raise ValueError(f"freeze_ratioは0.0-1.0の範囲である必要があります: {self.freeze_ratio}")
         
-        self.interval = config.get('interval', 4096)
+        self.interval = int(config.get('interval', 4096))
         if self.interval <= 0:
             raise ValueError(f"intervalは正の値である必要があります: {self.interval}")
         
-        self.learning_rate = config.get('learning_rate', 3e-5)
+        # 学習率の型変換（文字列の場合もfloatに変換）
+        learning_rate = config.get('learning_rate', 3e-5)
+        if isinstance(learning_rate, str):
+            self.learning_rate = float(learning_rate)
+        else:
+            self.learning_rate = float(learning_rate)
         if self.learning_rate <= 0:
             raise ValueError(f"learning_rateは正の値である必要があります: {self.learning_rate}")
         
-        self.steps = config.get('steps', 500)
+        self.steps = int(config.get('steps', 500))
         if self.steps <= 0:
             raise ValueError(f"stepsは正の値である必要があります: {self.steps}")
         
-        self.batch_size = config.get('batch_size', 8)
+        self.batch_size = int(config.get('batch_size', 8))
         if self.batch_size <= 0:
             raise ValueError(f"batch_sizeは正の値である必要があります: {self.batch_size}")
         
@@ -75,7 +80,7 @@ class EfQATQuantization:
                 raise ValueError("学習データセットがありません")
             
             # Studentモデルを学習モードに設定
-            self.student_model.train_mode()
+            self.student_model.train()
             
             # データローダー作成
             self.dataloader = DataLoader(
