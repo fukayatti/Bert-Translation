@@ -1,7 +1,7 @@
 # --- CUDA 12.1 ビルドの PyTorch 2.3 系 ---
-torch==2.3.0+cu121 --index-url https://download.pytorch.org/whl/cu121
-torchvision==0.18.0+cu121 --index-url https://download.pytorch.org/whl/cu121
-torchaudio==2.3.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1     # ← 同じバージョンでそろえる
 
 # 量子化・モデル基盤
 bitsandbytes>=0.46.0         # SCB バグ修正済み
