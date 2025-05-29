@@ -330,6 +330,16 @@ class EfQATQuantization:
                             logger.warning("GPU メモリ使用量が高くなっています")
                             torch.cuda.empty_cache()
                     
+                except RuntimeError as batch_error:
+                    if "CUDA out of memory" in str(batch_error):
+                        logger.error(f"ステップ {step} でCUDAメモリエラー: {batch_error}")
+                        # CUDAメモリクリア
+                        torch.cuda.empty_cache()
+                        continue
+                    else:
+                        logger.error(f"ステップ {step} でエラーが発生: {batch_error}")
+                        logger.debug(f"バッチエラーの詳細:\n{traceback.format_exc()}")
+                        continue
                 except Exception as batch_error:
                     logger.error(f"ステップ {step} でエラーが発生: {batch_error}")
                     logger.debug(f"バッチエラーの詳細:\n{traceback.format_exc()}")

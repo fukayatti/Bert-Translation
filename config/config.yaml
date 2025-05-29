@@ -34,24 +34,24 @@ student:
   num_hidden_layers: 6 # 4層から6層に増加（性能向上）
   learning_rate: 3e-5 # より適切な学習率
 
-# TAID蒸留設定 - 本番品質のための調整
+# TAID蒸留設定 - メモリ最適化
 distillation:
   alpha_start: 0.1 # より緩やかな開始
   alpha_end: 0.8 # より保守的な終了値
   momentum: 0.99 # モメンタム追加
   beta: 0.95 # より安定した蒸留
-  steps: 5000 # ステップ数大幅増加
-  batch_size: 12 # バッチサイズ調整
+  steps: 1000 # メモリ節約のため削減
+  batch_size: 2 # メモリ節約のため大幅削減
   temperature: 4.0 # 蒸留温度追加
 
-# EfQAT量子化設定 - 本番品質のための最適化
+# EfQAT量子化設定 - メモリ最適化
 quantization:
   freeze_ratio: 0.85 # より多くのパラメータを更新可能に
   interval: 2048 # より頻繁な閾値更新
   learning_rate: 1e-5 # より慎重な学習率
-  steps: 2000 # ステップ数増加
-  batch_size: 12 # バッチサイズ調整
-  warmup_steps: 200 # ウォームアップ追加
+  steps: 500 # メモリ節約のため削減
+  batch_size: 2 # メモリ節約のため大幅削減
+  warmup_steps: 50 # ウォームアップ削減
 
 # 評価設定 - 本番品質の評価
 evaluation:

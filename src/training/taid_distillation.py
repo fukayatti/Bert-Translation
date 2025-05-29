@@ -272,6 +272,15 @@ class TAIDDistillation:
                 
                 step += 1
                 
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logger.error(f"ステップ {step} で蒸留処理エラー: {e}")
+                    # CUDAメモリクリア
+                    torch.cuda.empty_cache()
+                    continue
+                else:
+                    logger.error(f"ステップ {step} で蒸留処理エラー: {e}")
+                    continue
             except Exception as e:
                 logger.error(f"ステップ {step} で蒸留処理エラー: {e}")
                 continue
