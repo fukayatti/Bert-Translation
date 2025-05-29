@@ -33,11 +33,32 @@ def filter_none_collate_fn(batch):
     if not clean_batch:
         return None
     
-    # PyTorchのデフォルトcollate関数を使用
-    from torch.utils.data._utils.collate import default_collate
+    # 手動でバッチを構成
     try:
-        return default_collate(clean_batch)
-    except (TypeError, ValueError) as e:
+        result = {}
+        for key in ['input_ids', 'attention_mask', 'labels']:
+            # 各キーの値を収集
+            values = [item[key] for item in clean_batch if key in item]
+            if not values:
+                continue
+            
+            # リストからテンソルに変換
+            if isinstance(values[0], list):
+                # ネストしたリストの場合、適切にパディング
+                max_length = max(len(v) for v in values)
+                padded_values = []
+                for v in values:
+                    if len(v) < max_length:
+                        # パディング（0で埋める）
+                        v = v + [0] * (max_length - len(v))
+                    padded_values.append(v)
+                result[key] = torch.tensor(padded_values, dtype=torch.long)
+            else:
+                result[key] = torch.stack([torch.tensor(v, dtype=torch.long) for v in values])
+        
+        return result if result else None
+        
+    except (TypeError, ValueError, RuntimeError) as e:
         logging.getLogger(__name__).warning(f"Collate関数でエラーが発生、バッチをスキップ: {e}")
         return None
 
@@ -235,10 +256,15 @@ class EfQATQuantization:
                     continue
                 
                 try:
-                    # バッチデータの準備
-                    input_ids = batch["input_ids"].to(self.device)
-                    attention_mask = batch["attention_mask"].to(self.device)
-                    labels = batch["labels"].to(self.device)
+                    # バッチデータの準備（リストからテンソルに変換）
+                    if isinstance(batch["input_ids"], list):
+                        input_ids = torch.tensor(batch["input_ids"], dtype=torch.long).to(self.device)
+                        attention_mask = torch.tensor(batch["attention_mask"], dtype=torch.long).to(self.device)
+                        labels = torch.tensor(batch["labels"], dtype=torch.long).to(self.device)
+                    else:
+                        input_ids = batch["input_ids"].to(self.device)
+                        attention_mask = batch["attention_mask"].to(self.device)
+                        labels = batch["labels"].to(self.device)
                     
                     # テンソルサイズの検証
                     if input_ids.size(0) == 0:
