@@ -1,11 +1,18 @@
-torch>=1.9.0
-transformers>=4.40.0
-datasets>=2.19.0
+# --- CUDA 12.1 ビルドの PyTorch 2.3 系 ---
+torch==2.3.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+torchvision==0.18.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+torchaudio==2.3.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# 量子化・モデル基盤
+bitsandbytes>=0.46.0         # SCB バグ修正済み :contentReference[oaicite:6]{index=6}
+transformers>=4.52.0         # BitsAndBytesConfig 新 API :contentReference[oaicite:7]{index=7}
+accelerate>=0.27.2           # device_map="auto" 依存 :contentReference[oaicite:8]{index=8}
+datasets>=2.20.0             # fsspec 新版互換 :contentReference[oaicite:9]{index=9}
 huggingface_hub>=0.23.0
-fsspec>=2024.3.0
-accelerate
-sentencepiece
-sacrebleu
-bert_score
-PyYAML
-numpy
+safetensors>=0.4.0           # .bin→.safetensors 代替読み込み :contentReference[oaicite:10]{index=10}
+fsspec>=2024.3.0             # Invalid pattern '**' エラー回避
+
+# 評価・前処理
+sentencepiece>=0.1.99
+sacrebleu>=2.4.0
+bert_score>=0.3.15
