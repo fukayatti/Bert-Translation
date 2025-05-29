@@ -1,16 +1,16 @@
-# BERT 英日翻訳モデル - TAID 蒸留 + EfQAT 量子化
+# BERT 英日翻訳モデル - 本番環境対応版
 
-このプロジェクトは、BERT2BERT から TinyBERT-4L への蒸留と EfQAT 量子化を使用した英日翻訳モデルの実装です。
+このプロジェクトは、BERT2BERT から TinyBERT-6L への蒸留と EfQAT 量子化を使用した本番品質の英日翻訳モデルの実装です。
 
 ## 特徴
 
 - **Teacher Model**: BERT2BERT（12 層エンコーダ・デコーダ）
-- **Student Model**: TinyBERT-4L（4 層エンコーダ・デコーダ）
+- **Student Model**: TinyBERT-6L（6 層エンコーダ・デコーダ）- 本番品質向上
 - **蒸留手法**: TAID (Temporally Adaptive Interpolated Distillation)
 - **量子化**: EfQAT (CWPN) による W4A8 量子化
-- **データセット**: JParaCrawl + JESC
-- **評価指標**: BLEU、BERTScore
-- **高い安定性**: 包括的なエラーハンドリングとログ機能
+- **データセット**: JParaCrawl + JESC（各 50 万サンプル）
+- **評価指標**: BLEU、BERTScore、ROUGE
+- **本番環境対応**: 包括的な監視、品質管理、セキュリティ機能
 
 ## 安定性の向上
 
@@ -44,34 +44,81 @@
 - デバイス設定の自動調整
 - 中断時の適切なクリーンアップ
 
+## 本番環境の新機能
+
+### リソース監視
+
+- リアルタイム CPU・メモリ・GPU 使用率監視
+- 自動リソース最適化とアラート
+- システム負荷に応じた動的バッチサイズ調整
+
+### 品質管理
+
+- 開発ツール統合（pytest、black、mypy）
+- コードカバレッジレポート
+- 自動品質チェック
+
+### セキュリティ
+
+- 暗号化通信対応
+- セキュアな依存関係管理
+- 設定ファイル検証強化
+
+### 運用支援
+
+- TensorBoard 統合
+- Weights & Biases 実験管理
+- 詳細な実行履歴とメトリクス
+
 ## インストール
 
 ```bash
+# 基本依存関係のインストール
 pip install -r requirements.txt
+
+# 開発環境の場合、追加で以下を実行
+pip install -e .
 ```
 
 ## 使用方法
 
-### 完全なパイプライン実行
+### 本番環境での完全なパイプライン実行
 
 ```bash
-python main.py
+# 本番設定での実行（推奨）
+python main.py --config config/config.yaml --log-level INFO
+
+# 高性能サーバーでの実行
+python main.py --device cuda --log-level INFO --output-dir ./production_output
 ```
 
-### オプション付きの実行
+### 開発・テスト環境での実行
 
 ```bash
-# ログレベルを設定して実行
-python main.py --log-level DEBUG
+# デバッグモードでの実行
+python main.py --log-level DEBUG --config config/debug_config.yaml
 
-# 特定のステップをスキップして実行
+# 特定のステップをスキップして実行（開発時のみ）
 python main.py --skip-teacher --skip-evaluation
 
 # カスタム設定ファイルを使用
 python main.py --config custom_config.yaml
 
-# 出力ディレクトリを指定
-python main.py --output-dir ./my_output
+# CPU環境での実行
+python main.py --device cpu --output-dir ./cpu_output
+```
+
+### 本番環境での段階的実行
+
+```bash
+# 1. システムリソースチェック
+python -c "import psutil; print(f'CPU: {psutil.cpu_count()}cores, RAM: {psutil.virtual_memory().total//1024**3}GB')"
+
+# 2. 設定ファイル検証
+python -c "import yaml; print('設定OK' if yaml.safe_load(open('config/config.yaml')) else '設定エラー')"
+
+# 3. 本番パイプライン実行
+python main.py --config config/config.yaml --log-level INFO --output-dir ./production_models
 ```
 
 ### 個別実行

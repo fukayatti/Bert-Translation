@@ -14,6 +14,8 @@ import sys
 import time
 import json
 import traceback
+import os
+import psutil
 from typing import Optional, Dict, Any
 
 # プロジェクトルートをパスに追加
@@ -73,6 +75,40 @@ def setup_logging(output_dir: Path, level: str = "INFO") -> logging.Logger:
     return logger
 
 logger = logging.getLogger(__name__)
+
+
+def log_system_resources():
+    """システムリソース使用状況をログ出力"""
+    try:
+        # CPU使用率
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        # メモリ使用状況
+        memory = psutil.virtual_memory()
+        memory_gb = memory.total / (1024**3)
+        memory_used_gb = memory.used / (1024**3)
+        memory_percent = memory.percent
+        
+        # ディスク使用状況
+        disk = psutil.disk_usage('/')
+        disk_gb = disk.total / (1024**3)
+        disk_used_gb = disk.used / (1024**3)
+        disk_percent = (disk.used / disk.total) * 100
+        
+        logger.info("システムリソース使用状況:")
+        logger.info(f"  CPU使用率: {cpu_percent:.1f}%")
+        logger.info(f"  メモリ使用量: {memory_used_gb:.1f}GB / {memory_gb:.1f}GB ({memory_percent:.1f}%)")
+        logger.info(f"  ディスク使用量: {disk_used_gb:.1f}GB / {disk_gb:.1f}GB ({disk_percent:.1f}%)")
+        
+        # GPUメモリ（利用可能な場合）
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                memory_allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                memory_reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                logger.info(f"  GPU{i} メモリ: {memory_allocated:.2f}GB使用 / {memory_reserved:.2f}GB予約")
+    
+    except Exception as e:
+        logger.warning(f"システムリソース監視でエラー: {e}")
 
 
 def validate_config(config: Dict[str, Any]) -> bool:
@@ -272,6 +308,9 @@ def main():
     logger.info(f"CUDA 利用可能: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         logger.info(f"CUDA デバイス数: {torch.cuda.device_count()}")
+    
+    # システムリソース監視
+    log_system_resources()
     
     # デバイス設定
     device = setup_device(args.device)

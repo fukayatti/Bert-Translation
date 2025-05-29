@@ -1,56 +1,86 @@
-# BERT英日翻訳モデル設定ファイル
+# BERT英日翻訳モデル設定ファイル - 本番環境用
 
-# データセット設定
+# データセット設定 - 本番品質のための大規模データ
 dataset:
-  jpara_samples: 50000
-  jesc_samples: 50000
-  test_size: 0.1
+  jpara_samples: 500000 # 10倍に増加
+  jesc_samples: 500000 # 10倍に増加
+  test_size: 0.05 # テストサイズを5%に削減（より多くの学習データ確保）
   seed: 42
 
 # トークナイザー設定
 tokenizer:
   model_name: "bert-base-multilingual-cased"
-  max_length: 128
+  max_length: 256 # より長い文章に対応
 
-# Teacher モデル設定
+# Teacher モデル設定 - 本番品質のための十分な学習
 teacher:
   model_name: "bert-base-multilingual-cased"
   output_dir: "teacher_out"
-  num_train_epochs: 1
-  per_device_train_batch_size: 8
-  per_device_eval_batch_size: 8
+  num_train_epochs: 5 # 十分な学習のため5エポックに増加
+  per_device_train_batch_size: 16 # バッチサイズ増加
+  per_device_eval_batch_size: 32 # 評価用バッチサイズ増加
+  gradient_accumulation_steps: 2 # 実質的なバッチサイズをさらに増加
   fp16: true
-  logging_steps: 100
-  save_total_limit: 1
+  logging_steps: 500 # ログ頻度調整
+  eval_steps: 1000 # 評価頻度調整
+  save_steps: 2000 # 保存頻度調整
+  save_total_limit: 3 # 複数のチェックポイント保持
+  warmup_steps: 1000 # ウォームアップステップ追加
+  weight_decay: 0.01 # 正則化追加
+  max_grad_norm: 1.0 # 勾配クリッピング追加
 
-# Student モデル設定
+# Student モデル設定 - 最適化された構成
 student:
-  num_hidden_layers: 4
-  learning_rate: 5e-5
+  num_hidden_layers: 6 # 4層から6層に増加（性能向上）
+  learning_rate: 3e-5 # より適切な学習率
 
-# TAID蒸留設定
+# TAID蒸留設定 - 本番品質のための調整
 distillation:
-  alpha_start: 0.2
-  alpha_end: 1.0
-  momentum: 0.0
-  beta: 0.9
-  steps: 1000
-  batch_size: 8
+  alpha_start: 0.1 # より緩やかな開始
+  alpha_end: 0.8 # より保守的な終了値
+  momentum: 0.99 # モメンタム追加
+  beta: 0.95 # より安定した蒸留
+  steps: 5000 # ステップ数大幅増加
+  batch_size: 12 # バッチサイズ調整
+  temperature: 4.0 # 蒸留温度追加
 
-# EfQAT量子化設定
+# EfQAT量子化設定 - 本番品質のための最適化
 quantization:
-  freeze_ratio: 0.9
-  interval: 4096
-  learning_rate: 3e-5
-  steps: 500
-  batch_size: 8
+  freeze_ratio: 0.85 # より多くのパラメータを更新可能に
+  interval: 2048 # より頻繁な閾値更新
+  learning_rate: 1e-5 # より慎重な学習率
+  steps: 2000 # ステップ数増加
+  batch_size: 12 # バッチサイズ調整
+  warmup_steps: 200 # ウォームアップ追加
 
-# 評価設定
+# 評価設定 - 本番品質の評価
 evaluation:
-  sample_size: 100
-  max_generation_length: 128
+  sample_size: 1000 # 評価サンプル数を10倍に増加
+  max_generation_length: 256 # より長い生成に対応
+  num_beams: 4 # ビームサーチ追加
+  early_stopping: true # 早期停止追加
+  metrics:
+    - "bleu"
+    - "bert_score"
+    - "rouge" # ROUGE評価追加
 
-# Hugging Face Hub設定
+# 本番環境設定
+production:
+  model_name: "bert-en-ja-translation-v1.0"
+  version: "1.0.0"
+  environment: "production"
+  checkpoint_retention: 5
+  automatic_mixed_precision: true
+  gradient_checkpointing: true
+
+# Hugging Face Hub設定 - 本番リリース用
 hub:
-  model_name: "tinybert4L-en-ja-w4a8"
-  private: true
+  model_name: "bert-en-ja-translation-production"
+  private: false # 本番では公開設定
+  license: "apache-2.0"
+  tags:
+    - "translation"
+    - "english"
+    - "japanese"
+    - "bert"
+    - "quantized"

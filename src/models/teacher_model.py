@@ -149,3 +149,26 @@ class TeacherModel:
             "total_params": sum(p.numel() for p in self.model.parameters()),
             "trainable_params": sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         }
+    
+    def eval(self):
+        """モデルを評価モードに設定"""
+        self.model.eval()
+        return self
+    
+    def train(self, mode: bool = True):
+        """モデルを学習/評価モードに設定"""
+        self.model.train(mode)
+        return self
+    
+    def to(self, device):
+        """モデルを指定デバイスに移動"""
+        self.model = self.model.to(device)
+        return self
+    
+    def parameters(self):
+        """モデルのパラメータを取得"""
+        return self.model.parameters()
+    
+    def __call__(self, *args, **kwargs):
+        """モデルを呼び出し可能にする"""
+        return self.model(*args, **kwargs)

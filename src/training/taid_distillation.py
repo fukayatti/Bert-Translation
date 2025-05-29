@@ -54,7 +54,7 @@ class TAIDDistillation:
         self.teacher_model.to(self.device)
         
         # Studentモデルを学習モードに設定
-        self.student_model.train_mode()
+        self.student_model.train()
         
         # データローダー作成
         self.dataloader = DataLoader(

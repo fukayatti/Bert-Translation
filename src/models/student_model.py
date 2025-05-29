@@ -206,6 +206,26 @@ class StudentModel:
         """評価モードに設定"""
         self.model.eval()
     
+    def train(self, mode: bool = True):
+        """モデルを学習/評価モードに設定（PyTorch標準）"""
+        self.model.train(mode)
+        return self
+    
+    def eval(self):
+        """モデルを評価モードに設定（PyTorch標準）"""
+        self.model.eval()
+        return self
+    
+    def to(self, device):
+        """モデルを指定デバイスに移動"""
+        self.device = device
+        self.model = self.model.to(device)
+        return self
+    
+    def __call__(self, *args, **kwargs):
+        """モデルを呼び出し可能にする"""
+        return self.model(*args, **kwargs)
+    
     def parameters(self):
         """モデルのパラメータを取得"""
         return self.model.parameters()
