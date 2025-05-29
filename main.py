@@ -92,13 +92,22 @@ def validate_config(config: Dict[str, Any]) -> bool:
     
     # 学習率などの数値パラメータの検証
     try:
-        if config['student'].get('learning_rate', 0) <= 0:
+        # Student学習率の検証
+        student_lr = config['student'].get('learning_rate', 0)
+        if isinstance(student_lr, str):
+            student_lr = float(student_lr)
+        if student_lr <= 0:
             logger.error("Student学習率は正の値である必要があります")
             return False
-        if config['quantization'].get('learning_rate', 0) <= 0:
+            
+        # 量子化学習率の検証
+        quant_lr = config['quantization'].get('learning_rate', 0)
+        if isinstance(quant_lr, str):
+            quant_lr = float(quant_lr)
+        if quant_lr <= 0:
             logger.error("量子化学習率は正の値である必要があります")
             return False
-    except (KeyError, TypeError) as e:
+    except (KeyError, TypeError, ValueError) as e:
         logger.error(f"設定パラメータの検証エラー: {e}")
         return False
     
