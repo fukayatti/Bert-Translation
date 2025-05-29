@@ -10,12 +10,13 @@ accelerate>=0.27.2           # device_map="auto" 依存
 datasets>=2.20.0             # fsspec 新版互換
 huggingface_hub>=0.23.0      # 安定性とセキュリティ向上
 safetensors>=0.4.0           # .bin→.safetensors 代替読み込み
-fsspec>=2024.3.0             # Invalid pattern '**' エラー回避
+fsspec>=2023.1.0,<=2024.5.0  # datasets互換
+gcsfs<=2024.5.0               # fsspec競合回避
 
 # 評価・前処理
 sentencepiece>=0.1.99        # トークナイザー
 sacrebleu>=2.4.0             # BLEU評価メトリック
-bert_score>=0.3.15           # BERTScore評価メトリック
+bert_score>=0.3.1            # BERTScore評価メトリック
 
 # 設定・ログ・ユーティリティ
 PyYAML>=6.0                  # YAML設定ファイル処理
