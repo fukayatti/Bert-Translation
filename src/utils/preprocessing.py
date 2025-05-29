@@ -51,9 +51,9 @@ class TextPreprocessor:
                 en_texts.append(en.strip())
                 ja_texts.append(ja.strip())
         
-        # 有効なデータがない場合はNoneを返す
+        # 有効なデータがない場合は空のバッチを返す
         if not en_texts or not ja_texts:
-            return None
+            return {"input_ids": [], "attention_mask": [], "labels": []}
             
         try:
             # ソース（英語）のトークナイズ
@@ -89,7 +89,7 @@ class TextPreprocessor:
             
         except Exception as e:
             logger.warning(f"前処理中にエラーが発生: {e}")
-            return None
+            return {"input_ids": [], "attention_mask": [], "labels": []}
     
     def preprocess_dataset(self, dataset, remove_columns: List[str] = None):
         """
@@ -107,10 +107,38 @@ class TextPreprocessor:
             
         logger.info("データセットの前処理を開始...")
         
+        # カスタムフィルタ関数を定義
+        def filter_and_preprocess(examples):
+            # 有効なペアのみをフィルタリング
+            valid_indices = []
+            for i, (en, ja) in enumerate(zip(examples["en"], examples["ja"])):
+                if (en is not None and ja is not None and
+                    isinstance(en, str) and isinstance(ja, str) and
+                    len(en.strip()) > 0 and len(ja.strip()) > 0):
+                    valid_indices.append(i)
+            
+            # 有効なデータのみを抽出
+            if not valid_indices:
+                return {"input_ids": [], "attention_mask": [], "labels": []}
+            
+            filtered_examples = {
+                "en": [examples["en"][i] for i in valid_indices],
+                "ja": [examples["ja"][i] for i in valid_indices]
+            }
+            
+            # 前処理を実行
+            return self.preprocess_batch(filtered_examples)
+        
         processed_dataset = dataset.map(
-            self.preprocess_batch,
+            filter_and_preprocess,
             batched=True,
-            remove_columns=remove_columns
+            remove_columns=remove_columns,
+            batch_size=1000  # バッチサイズを指定
+        )
+        
+        # 空のバッチを除去
+        processed_dataset = processed_dataset.filter(
+            lambda x: len(x["input_ids"]) > 0
         )
         
         logger.info("データセットの前処理完了")
