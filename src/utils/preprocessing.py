@@ -39,34 +39,57 @@ class TextPreprocessor:
         Returns:
             前処理済みバッチデータ
         """
-        # ソース（英語）のトークナイズ
-        src_encoded = self.tokenizer(
-            batch["en"], 
-            padding="max_length", 
-            truncation=True, 
-            max_length=self.max_length
-        )
+        # 入力データの検証とクリーニング
+        en_texts = []
+        ja_texts = []
         
-        # ターゲット（日本語）のトークナイズ
-        tgt_encoded = self.tokenizer(
-            batch["ja"], 
-            padding="max_length", 
-            truncation=True, 
-            max_length=self.max_length
-        )
+        for en, ja in zip(batch["en"], batch["ja"]):
+            # None、空文字列、非文字列をフィルタリング
+            if (en is not None and ja is not None and
+                isinstance(en, str) and isinstance(ja, str) and
+                len(en.strip()) > 0 and len(ja.strip()) > 0):
+                en_texts.append(en.strip())
+                ja_texts.append(ja.strip())
         
-        # バッチデータの作成
-        batch["input_ids"] = src_encoded.input_ids
-        batch["attention_mask"] = src_encoded.attention_mask
-        
-        # ラベルの作成（パディングトークンを-100に置換）
-        labels = tgt_encoded.input_ids
-        batch["labels"] = [
-            [tok if tok != self.tokenizer.pad_token_id else -100 for tok in seq] 
-            for seq in labels
-        ]
-        
-        return batch
+        # 有効なデータがない場合はNoneを返す
+        if not en_texts or not ja_texts:
+            return None
+            
+        try:
+            # ソース（英語）のトークナイズ
+            src_encoded = self.tokenizer(
+                en_texts,
+                padding="max_length",
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors=None
+            )
+            
+            # ターゲット（日本語）のトークナイズ
+            tgt_encoded = self.tokenizer(
+                ja_texts,
+                padding="max_length",
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors=None
+            )
+            
+            # バッチデータの作成
+            batch["input_ids"] = src_encoded.input_ids
+            batch["attention_mask"] = src_encoded.attention_mask
+            
+            # ラベルの作成（パディングトークンを-100に置換）
+            labels = tgt_encoded.input_ids
+            batch["labels"] = [
+                [tok if tok != self.tokenizer.pad_token_id else -100 for tok in seq]
+                for seq in labels
+            ]
+            
+            return batch
+            
+        except Exception as e:
+            logger.warning(f"前処理中にエラーが発生: {e}")
+            return None
     
     def preprocess_dataset(self, dataset, remove_columns: List[str] = None):
         """
